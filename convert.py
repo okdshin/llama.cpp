@@ -7,6 +7,7 @@ import copy
 import enum
 import faulthandler
 import functools
+import importlib
 import io
 import itertools
 import json
@@ -429,7 +430,26 @@ class SentencePieceVocab:
     def __repr__(self) -> str:
         return f"<SentencePieceVocab with {self.vocab_size_base} base tokens and {len(self.added_tokens_list)} added tokens>"
 
-Vocab: TypeAlias = 'BpeVocab | SentencePieceVocab'
+class CodeGen25Vocab:
+    def __init__(self, path: Path):
+        tokenizer_script_path = str((path / "tokenization_codegen25.py").absolute())
+        spec = importlib.util.spec_from_file_location(tokenizer_script_path, tokenizer_script_path)
+        tokenizer_module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(tokenizer_module)
+        self.tokenizer = tokenizer_module.CodeGen25Tokenizer()
+        self.vocab_size = len(self.tokenizer)
+
+    def all_tokens(self) -> Iterable[Tuple[bytes, float]]:
+        for index in range(0, self.vocab_size):
+            token = self.tokenizer.encoder.decode_single_token_bytes(index)
+            yield (token, float(index))
+
+    def __repr__(self) -> str:
+        return f"<CodeGen25Vocab with {self.vocab_size} tokens>"
+
+
+Vocab: TypeAlias = 'BpeVocab | SentencePieceVocab | CodeGen25Vocab'
+
 
 #
 # data loading
@@ -802,7 +822,7 @@ def bounded_parallel_map(func: Callable[[In], Out], iterable: Iterable[In], conc
 
 def check_vocab_size(params: Params, vocab: Vocab) -> None:
     if params.n_vocab != vocab.vocab_size:
-        assert isinstance(vocab, BpeVocab) or isinstance(vocab, SentencePieceVocab)
+        assert isinstance(vocab, BpeVocab) or isinstance(vocab, SentencePieceVocab) or isinstance(vocab, CodeGen25Vocab)
         if params.n_vocab == vocab.vocab_size_base:
             print("Ignoring added_tokens.json since model matches vocab size without it.")
             vocab.added_tokens_list = []
@@ -1077,6 +1097,8 @@ def load_vocab(path: Path, vocabtype: str | None) -> Vocab:
     # a directory, it might be the model directory, and tokenizer.model might
     # be in the parent of that.
     if path.is_dir():
+        if (path / "tokenization_codegen25.py").exists():
+            return CodeGen25Vocab(path)
         vocab_file = "tokenizer.model"
         if vocabtype == 'bpe':
             vocab_file = "vocab.json"
