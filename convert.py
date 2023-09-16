@@ -439,10 +439,21 @@ class CodeGen25Vocab:
         self.tokenizer = tokenizer_module.CodeGen25Tokenizer()
         self.vocab_size = len(self.tokenizer)
 
-    def all_tokens(self) -> Iterable[Tuple[bytes, float]]:
+    def all_tokens(self) -> Iterable[tuple[bytes, float, gguf.TokenType]]:
         for index in range(0, self.vocab_size):
             token = self.tokenizer.encoder.decode_single_token_bytes(index)
-            yield (token, float(index))
+            if index < 256:
+                if index < 16:
+                    token = f"<{hex(index).upper().replace('X', 'x0')}>"
+                else:
+                    token = f"<{hex(index).upper().replace('X', 'x')}>"
+                print(token)
+                toktype = gguf.TokenType.BYTE
+            elif index == 50256 or index >= 50295:
+                toktype = gguf.TokenType.CONTROL
+            else:
+                toktype = gguf.TokenType.NORMAL
+            yield (token, float(index), toktype)
 
     def __repr__(self) -> str:
         return f"<CodeGen25Vocab with {self.vocab_size} tokens>"
@@ -883,6 +894,9 @@ class OutputFile:
             self.gguf.add_tokenizer_model("llama")
         elif isinstance(vocab, BpeVocab):
             self.gguf.add_tokenizer_model("gpt2")
+        elif isinstance(vocab, CodeGen25Vocab):
+            #self.gguf.add_tokenizer_model("gpt2")
+            self.gguf.add_tokenizer_model("sfcodegen25")
         else:
             raise ValueError(f'Unknown vocab type: Not BpeVocab or SentencePieceVocab')
         self.gguf.add_token_list(tokens)
