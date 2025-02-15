@@ -8270,6 +8270,10 @@ static struct ggml_cgraph * llama_build_graph(
             {
                 result = llm.build_plamo();
             } break;
+        case LLM_ARCH_PLAMO2:
+            {
+                result = llm.build_plamo2();
+            } break;
         case LLM_ARCH_GPT2:
             {
                 result = llm.build_gpt2();
