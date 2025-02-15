@@ -2713,7 +2713,7 @@ class Plamo2Model(Model):
         del bid  # unused
 
         if name.endswith(".dt_bias"):
-            name = name.rpartition(".dt_bias")[0] + ".dt_bias.bias"
+            name = name.rpartition(".dt_bias")[0] + ".dt_proj.bias"
         elif name.endswith(".dt_norm_weight"):
             name = name.rpartition(".dt_norm_weight")[0] + ".dt_norm.weight"
         elif name.endswith(".B_norm_weight"):

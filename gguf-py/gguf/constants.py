@@ -326,7 +326,6 @@ class MODEL_TENSOR(IntEnum):
     SSM_CONV1D           = auto()
     SSM_X                = auto()
     SSM_DT               = auto()
-    SSM_DT_bias          = auto()
     SSM_A                = auto()
     SSM_D                = auto()
     SSM_dt_norm          = auto()
@@ -518,7 +517,6 @@ TENSOR_NAMES: dict[MODEL_TENSOR, str] = {
     MODEL_TENSOR.SSM_CONV1D:                "blk.{bid}.ssm_conv1d",
     MODEL_TENSOR.SSM_X:                     "blk.{bid}.ssm_x",
     MODEL_TENSOR.SSM_DT:                    "blk.{bid}.ssm_dt",
-    MODEL_TENSOR.SSM_DT_bias:               "blk.{bid}.ssm_dt_bias",
     MODEL_TENSOR.SSM_A:                     "blk.{bid}.ssm_a",
     MODEL_TENSOR.SSM_D:                     "blk.{bid}.ssm_d",
     MODEL_TENSOR.SSM_dt_norm:               "blk.{bid}.ssm_dt_norm",
@@ -931,7 +929,6 @@ MODEL_TENSORS: dict[MODEL_ARCH, list[MODEL_TENSOR]] = {
         MODEL_TENSOR.SSM_CONV1D,
         MODEL_TENSOR.SSM_X,
         MODEL_TENSOR.SSM_DT,
-        MODEL_TENSOR.SSM_DT_bias,
         MODEL_TENSOR.SSM_A,
         MODEL_TENSOR.SSM_D,
         MODEL_TENSOR.SSM_dt_norm,

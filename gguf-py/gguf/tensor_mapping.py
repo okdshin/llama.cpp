@@ -460,10 +460,6 @@ class TensorNameMap:
             "model.layers.layers.{bid}.mixer.dt_proj",  # plamo2
         ),
 
-        MODEL_TENSOR.SSM_DT_bias: (
-            "model.layers.layers.{bid}.mixer.dt_bias",  # plamo2
-        ),
-
         MODEL_TENSOR.SSM_A: (
             "model.layers.{bid}.A_log",
             "backbone.layers.{bid}.mixer.A_log",
