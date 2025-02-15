@@ -257,12 +257,12 @@ class TensorNameMap:
             "transformer.decoder_layer.{bid}.rms_norm_2",                    # Grok
             "encoder.layers.{bid}.post_attention_layernorm",                 # chatglm
             "transformer.layers.{bid}.ffn_norm",                             # openelm
+            "model.layers.layers.{bid}.pre_mlp_norm",                        # plamo2
         ),
 
         # Post feed-forward norm
         MODEL_TENSOR.FFN_PRE_NORM: (
             "model.layers.{bid}.pre_feedforward_layernorm", # gemma2
-            "model.layers.layers.{bid}.pre_mlp_norm",       # plamo2
         ),
 
         # Post feed-forward norm
