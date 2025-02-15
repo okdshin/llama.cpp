@@ -246,6 +246,7 @@ class MODEL_ARCH(IntEnum):
     PHI3             = auto()
     PHIMOE           = auto()
     PLAMO            = auto()
+    PLAMO2           = auto()
     CODESHELL        = auto()
     ORION            = auto()
     INTERNLM2        = auto()
@@ -325,8 +326,12 @@ class MODEL_TENSOR(IntEnum):
     SSM_CONV1D           = auto()
     SSM_X                = auto()
     SSM_DT               = auto()
+    SSM_DT_bias          = auto()
     SSM_A                = auto()
     SSM_D                = auto()
+    SSM_dt_norm          = auto()
+    SSM_B_norm           = auto()
+    SSM_C_norm           = auto()
     SSM_OUT              = auto()
     TIME_MIX_W1          = auto()
     TIME_MIX_W2          = auto()
@@ -433,6 +438,7 @@ MODEL_ARCH_NAMES: dict[MODEL_ARCH, str] = {
     MODEL_ARCH.PHI3:             "phi3",
     MODEL_ARCH.PHIMOE:           "phimoe",
     MODEL_ARCH.PLAMO:            "plamo",
+    MODEL_ARCH.PLAMO2:           "plamo2",
     MODEL_ARCH.CODESHELL:        "codeshell",
     MODEL_ARCH.ORION:            "orion",
     MODEL_ARCH.INTERNLM2:        "internlm2",
@@ -512,8 +518,12 @@ TENSOR_NAMES: dict[MODEL_TENSOR, str] = {
     MODEL_TENSOR.SSM_CONV1D:                "blk.{bid}.ssm_conv1d",
     MODEL_TENSOR.SSM_X:                     "blk.{bid}.ssm_x",
     MODEL_TENSOR.SSM_DT:                    "blk.{bid}.ssm_dt",
+    MODEL_TENSOR.SSM_DT_bias:               "blk.{bid}.ssm_dt_bias",
     MODEL_TENSOR.SSM_A:                     "blk.{bid}.ssm_a",
     MODEL_TENSOR.SSM_D:                     "blk.{bid}.ssm_d",
+    MODEL_TENSOR.SSM_dt_norm:               "blk.{bid}.ssm_dt_norm",
+    MODEL_TENSOR.SSM_B_norm:                "blk.{bid}.ssm_b_norm",
+    MODEL_TENSOR.SSM_C_norm:                "blk.{bid}.ssm_c_norm",
     MODEL_TENSOR.SSM_OUT:                   "blk.{bid}.ssm_out",
     MODEL_TENSOR.TIME_MIX_W1:               "blk.{bid}.time_mix_w1",
     MODEL_TENSOR.TIME_MIX_W2:               "blk.{bid}.time_mix_w2",
@@ -903,6 +913,31 @@ MODEL_TENSORS: dict[MODEL_ARCH, list[MODEL_TENSOR]] = {
         MODEL_TENSOR.FFN_GATE,
         MODEL_TENSOR.FFN_DOWN,
         MODEL_TENSOR.FFN_UP,
+    ],
+    MODEL_ARCH.PLAMO2: [
+        MODEL_TENSOR.TOKEN_EMBD,
+        MODEL_TENSOR.OUTPUT_NORM,
+        MODEL_TENSOR.ATTN_NORM,
+        MODEL_TENSOR.ATTN_QKV,
+        MODEL_TENSOR.ATTN_Q,
+        MODEL_TENSOR.ATTN_K,
+        MODEL_TENSOR.ATTN_OUT,
+        MODEL_TENSOR.ATTN_POST_NORM,
+        MODEL_TENSOR.FFN_PRE_NORM,
+        MODEL_TENSOR.FFN_DOWN,
+        MODEL_TENSOR.FFN_UP,
+        MODEL_TENSOR.FFN_POST_NORM,
+        MODEL_TENSOR.SSM_IN,
+        MODEL_TENSOR.SSM_CONV1D,
+        MODEL_TENSOR.SSM_X,
+        MODEL_TENSOR.SSM_DT,
+        MODEL_TENSOR.SSM_DT_bias,
+        MODEL_TENSOR.SSM_A,
+        MODEL_TENSOR.SSM_D,
+        MODEL_TENSOR.SSM_dt_norm,
+        MODEL_TENSOR.SSM_B_norm,
+        MODEL_TENSOR.SSM_C_norm,
+        MODEL_TENSOR.SSM_OUT,
     ],
     MODEL_ARCH.GPT2: [
         MODEL_TENSOR.TOKEN_EMBD,

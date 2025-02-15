@@ -2675,6 +2675,46 @@ class PlamoModel(Model):
 
         return [(new_name, data_torch)]
 
+@Model.register("Plamo2ForCausalLM")
+class Plamo2Model(Model):
+    model_arch = gguf.MODEL_ARCH.PLAMO2
+
+    def set_vocab(self):
+        self._set_vocab_sentencepiece()
+
+    def set_gguf_parameters(self):
+        hparams = self.hparams
+        block_count = hparams["num_hidden_layers"]
+
+        self.gguf_writer.add_context_length(4096)  # not in config.json
+        self.gguf_writer.add_embedding_length(hparams["hidden_size"])
+        self.gguf_writer.add_feed_forward_length(hparams["intermediate_size"])
+        self.gguf_writer.add_block_count(block_count)
+        self.gguf_writer.add_head_count(hparams["num_attention_heads"])
+        self.gguf_writer.add_head_count_kv(5)  # hparams["num_key_value_heads"]) is wrong
+        self.gguf_writer.add_layer_norm_rms_eps(hparams["rms_norm_eps"])
+        self.gguf_writer.add_file_type(self.ftype)
+
+    def modify_tensors(self, data_torch: Tensor, name: str, bid: int | None) -> Iterable[tuple[str, Tensor]]:
+        del bid  # unused
+
+        if name.endswith(".dt_bias"):
+            name = name.rpartition(".dt_bias")[0] + ".dt_bias.bias"
+        elif name.endswith(".dt_norm_weight"):
+            name = name.rpartition(".dt_norm_weight")[0] + ".dt_norm.weight"
+        elif name.endswith(".B_norm_weight"):
+            name = name.rpartition(".B_norm_weight")[0] + ".B_norm.weight"
+        elif name.endswith(".C_norm_weight"):
+            name = name.rpartition(".C_norm_weight")[0] + ".C_norm.weight"
+        elif name.endswith(".k_weight"):
+            name = name.rpartition(".k_weight")[0] + ".k.weight"
+        elif name.endswith(".q_weight"):
+            name = name.rpartition(".q_weight")[0] + ".q.weight"
+
+        new_name = self.map_tensor_name(name)
+
+        return [(new_name, data_torch)]
+
 
 @Model.register("CodeShellForCausalLM")
 class CodeShellModel(Model):
