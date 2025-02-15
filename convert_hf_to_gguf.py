@@ -2684,15 +2684,29 @@ class Plamo2Model(Model):
 
     def set_gguf_parameters(self):
         hparams = self.hparams
-        block_count = hparams["num_hidden_layers"]
 
-        self.gguf_writer.add_context_length(4096)  # not in config.json
+        # Basic model parameters
+        self.gguf_writer.add_context_length(hparams["attention_window_size"])
         self.gguf_writer.add_embedding_length(hparams["hidden_size"])
         self.gguf_writer.add_feed_forward_length(hparams["intermediate_size"])
-        self.gguf_writer.add_block_count(block_count)
+        self.gguf_writer.add_block_count(hparams["num_hidden_layers"])
         self.gguf_writer.add_head_count(hparams["num_attention_heads"])
-        self.gguf_writer.add_head_count_kv(5)  # hparams["num_key_value_heads"]) is wrong
+        self.gguf_writer.add_head_count_kv(hparams["num_key_value_heads"])
         self.gguf_writer.add_layer_norm_rms_eps(hparams["rms_norm_eps"])
+
+        # SSM (Mamba) specific parameters
+        # d_state must be a power of 2
+        self.gguf_writer.add_ssm_state_size(hparams["mamba_d_state"])
+        # d_conv is the conv kernel size
+        self.gguf_writer.add_ssm_conv_kernel(hparams["mamba_d_conv"])
+        # inner_size = hidden_size * 2 (fixed in Mamba)
+        self.gguf_writer.add_ssm_inner_size(hparams["hidden_size"] * 2)
+        # time_step_rank = inner_size / head_dim
+        self.gguf_writer.add_ssm_time_step_rank(hparams["mamba_num_heads"])
+
+        # Model configuration
+        self.gguf_writer.add_vocab_size(hparams["vocab_size"])
+
         self.gguf_writer.add_file_type(self.ftype)
 
     def modify_tensors(self, data_torch: Tensor, name: str, bid: int | None) -> Iterable[tuple[str, Tensor]]:
