@@ -2309,33 +2309,24 @@ bool llama_model::load_tensors(llama_model_loader & ml) {
                     output = create_tensor(tn(LLM_TENSOR_OUTPUT, "weight"), {n_embd, n_vocab}, TENSOR_NOT_REQUIRED);
 
                     for (int i = 0; i < n_layer; ++i) {
-                        std::cout << i << std::endl;
                         auto & layer = layers[i];
 
                         // Check if this is an attention layer by looking for any attention tensor
                         bool is_attn_layer = ml.get_tensor_meta(tn(LLM_TENSOR_ATTN_QKV, "weight", i).str().c_str()) != nullptr;
 
-                        for (auto const& e : ml.weights_map) {
-                            std::cout << e.first << std::endl;
-                        }
+                        layer.attn_norm = create_tensor(tn(LLM_TENSOR_ATTN_NORM, "weight", i), {n_embd}, 0);
 
                         if (is_attn_layer) {
                             // Attention layer tensors
-                            layer.attn_norm = create_tensor(tn(LLM_TENSOR_ATTN_NORM, "weight", i), {n_embd}, 0);
 
-                            layer.wqkv = create_tensor(tn(LLM_TENSOR_ATTN_QKV, "weight", i), {n_embd, n_embd + 2*n_embd_gqa}, 0);
-                            layer.wq = create_tensor(tn(LLM_TENSOR_ATTN_Q, "weight", i), {n_embd, n_embd}, 0);
-                            layer.wk = create_tensor(tn(LLM_TENSOR_ATTN_K, "weight", i), {n_embd, n_embd_gqa}, 0);
+                            layer.wqkv = create_tensor(tn(LLM_TENSOR_ATTN_QKV, "weight", i), {n_embd, n_embd + (2 * n_embd_gqa)}, 0);
+                            const int64_t hidden_size_per_head = 128; //TODO PLAMO2
+                            const int64_t num_attn_heads = 16; //TODO PLAMO2
+                            const int64_t num_attn_kv_heads = 1; //TODO PLAMO2
+                            layer.wq = create_tensor(tn(LLM_TENSOR_ATTN_Q, "weight", i), {hidden_size_per_head, num_attn_heads}, 0);
+                            layer.wk = create_tensor(tn(LLM_TENSOR_ATTN_K, "weight", i), {hidden_size_per_head, num_attn_kv_heads}, 0);
 
                             layer.wo = create_tensor(tn(LLM_TENSOR_ATTN_OUT, "weight", i), {n_embd, n_embd}, 0);
-                            layer.attn_post_norm = create_tensor(tn(LLM_TENSOR_ATTN_POST_NORM, "weight", i), {n_embd}, 0);
-
-                            // FFN for attention layer
-                            layer.ffn_norm = create_tensor(tn(LLM_TENSOR_FFN_NORM, "weight", i), {n_embd}, 0);
-                            layer.ffn_down = create_tensor(tn(LLM_TENSOR_FFN_DOWN, "weight", i), {n_ff, n_embd}, 0);
-                            layer.ffn_up = create_tensor(tn(LLM_TENSOR_FFN_UP, "weight", i), {n_embd, n_ff}, 0);
-                            layer.ffn_post_norm = create_tensor(tn(LLM_TENSOR_FFN_POST_NORM, "weight", i), {n_embd}, 0);
-
                         } else {
                             if(ml.get_tensor_meta(tn(LLM_TENSOR_SSM_IN, "weight", i).str().c_str()) == nullptr) {
                                 throw std::runtime_error(format("layer %d is neither attention nor mamba", i));
@@ -2351,7 +2342,7 @@ bool llama_model::load_tensors(llama_model_loader & ml) {
 
                             layer.ssm_in = create_tensor(tn(LLM_TENSOR_SSM_IN, "weight", i), {n_embd, 2 * d_inner}, 0);
                             layer.ssm_conv1d = create_tensor(tn(LLM_TENSOR_SSM_CONV1D, "weight", i), {d_conv, d_inner}, 0);
-                            layer.ssm_x = create_tensor(tn(LLM_TENSOR_SSM_X, "weight", i), {d_inner, dt_rank + 2*d_state}, 0);
+                            layer.ssm_x = create_tensor(tn(LLM_TENSOR_SSM_X, "weight", i), {d_inner, dt_rank + (2 * d_state)}, 0);
 
                             layer.ssm_dt = create_tensor(tn(LLM_TENSOR_SSM_DT, "weight", i), {dt_rank, ssm_num_heads}, 0);
                             layer.ssm_dt_b = create_tensor(tn(LLM_TENSOR_SSM_DT, "bias", i), {ssm_num_heads}, 0);
@@ -2366,6 +2357,14 @@ bool llama_model::load_tensors(llama_model_loader & ml) {
 
                             layer.ssm_out = create_tensor(tn(LLM_TENSOR_SSM_OUT, "weight", i), {d_inner, n_embd}, 0);
                         }
+
+                        layer.attn_post_norm = create_tensor(tn(LLM_TENSOR_ATTN_POST_NORM, "weight", i), {n_embd}, 0);
+
+                        // FFN for attention layer
+                        layer.ffn_norm = create_tensor(tn(LLM_TENSOR_FFN_NORM, "weight", i), {n_embd}, 0);
+                        layer.ffn_down = create_tensor(tn(LLM_TENSOR_FFN_DOWN, "weight", i), {n_ff, n_embd}, 0);
+                        layer.ffn_up = create_tensor(tn(LLM_TENSOR_FFN_UP, "weight", i), {n_embd, 2 * n_ff}, 0);
+                        layer.ffn_post_norm = create_tensor(tn(LLM_TENSOR_FFN_POST_NORM, i), {n_embd}, 0);
                     }
                 } break;
             case LLM_ARCH_GPT2:
