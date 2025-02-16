@@ -648,7 +648,6 @@ static const std::map<llm_arch, std::map<llm_tensor, const char *>> LLM_TENSOR_N
             { LLM_TENSOR_SSM_CONV1D,      "blk.%d.ssm_conv1d" },
             { LLM_TENSOR_SSM_X,           "blk.%d.ssm_x" },
             { LLM_TENSOR_SSM_DT,          "blk.%d.ssm_dt" },
-            { LLM_TENSOR_SSM_DT_BIAS,     "blk.%d.ssm_dt_bias" },
             { LLM_TENSOR_SSM_A,           "blk.%d.ssm_a" },
             { LLM_TENSOR_SSM_D,           "blk.%d.ssm_d" },
             { LLM_TENSOR_SSM_DT_NORM,     "blk.%d.ssm_dt_norm" },

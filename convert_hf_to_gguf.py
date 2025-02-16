@@ -2699,10 +2699,8 @@ class Plamo2Model(Model):
         self.gguf_writer.add_ssm_state_size(hparams["mamba_d_state"])
         # d_conv is the conv kernel size
         self.gguf_writer.add_ssm_conv_kernel(hparams["mamba_d_conv"])
-        # inner_size = hidden_size * 2 (fixed in Mamba)
-        self.gguf_writer.add_ssm_inner_size(hparams["hidden_size"] * 2)
-        # time_step_rank = inner_size / head_dim
-        self.gguf_writer.add_ssm_time_step_rank(hparams["mamba_num_heads"])
+        self.gguf_writer.add_ssm_inner_size(hparams["hidden_size_per_head"] * hparams["mamba_num_heads"])
+        self.gguf_writer.add_ssm_time_step_rank(max(64, hparams["hidden_size"] // 16))  # dt_dim
 
         # Model configuration
         self.gguf_writer.add_vocab_size(hparams["vocab_size"])
@@ -2724,8 +2722,12 @@ class Plamo2Model(Model):
             name = name.rpartition(".k_weight")[0] + ".k.weight"
         elif name.endswith(".q_weight"):
             name = name.rpartition(".q_weight")[0] + ".q.weight"
+        elif name.endswith(".conv1d.weight"):
+            data_torch = torch.squeeze(data_torch)  # remove (, 1, )
+            assert data_torch.ndim == 2
 
         new_name = self.map_tensor_name(name)
+        print(f"{name} -> {new_name}: {data_torch.shape}")
 
         return [(new_name, data_torch)]
 

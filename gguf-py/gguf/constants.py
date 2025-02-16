@@ -328,9 +328,9 @@ class MODEL_TENSOR(IntEnum):
     SSM_DT               = auto()
     SSM_A                = auto()
     SSM_D                = auto()
-    SSM_dt_norm          = auto()
-    SSM_B_norm           = auto()
-    SSM_C_norm           = auto()
+    SSM_DT_NORM          = auto()
+    SSM_B_NORM           = auto()
+    SSM_C_NORM           = auto()
     SSM_OUT              = auto()
     TIME_MIX_W1          = auto()
     TIME_MIX_W2          = auto()
@@ -519,9 +519,9 @@ TENSOR_NAMES: dict[MODEL_TENSOR, str] = {
     MODEL_TENSOR.SSM_DT:                    "blk.{bid}.ssm_dt",
     MODEL_TENSOR.SSM_A:                     "blk.{bid}.ssm_a",
     MODEL_TENSOR.SSM_D:                     "blk.{bid}.ssm_d",
-    MODEL_TENSOR.SSM_dt_norm:               "blk.{bid}.ssm_dt_norm",
-    MODEL_TENSOR.SSM_B_norm:                "blk.{bid}.ssm_b_norm",
-    MODEL_TENSOR.SSM_C_norm:                "blk.{bid}.ssm_c_norm",
+    MODEL_TENSOR.SSM_DT_NORM:               "blk.{bid}.ssm_dt_norm",
+    MODEL_TENSOR.SSM_B_NORM:                "blk.{bid}.ssm_b_norm",
+    MODEL_TENSOR.SSM_C_NORM:                "blk.{bid}.ssm_c_norm",
     MODEL_TENSOR.SSM_OUT:                   "blk.{bid}.ssm_out",
     MODEL_TENSOR.TIME_MIX_W1:               "blk.{bid}.time_mix_w1",
     MODEL_TENSOR.TIME_MIX_W2:               "blk.{bid}.time_mix_w2",
@@ -931,9 +931,9 @@ MODEL_TENSORS: dict[MODEL_ARCH, list[MODEL_TENSOR]] = {
         MODEL_TENSOR.SSM_DT,
         MODEL_TENSOR.SSM_A,
         MODEL_TENSOR.SSM_D,
-        MODEL_TENSOR.SSM_dt_norm,
-        MODEL_TENSOR.SSM_B_norm,
-        MODEL_TENSOR.SSM_C_norm,
+        MODEL_TENSOR.SSM_DT_NORM,
+        MODEL_TENSOR.SSM_B_NORM,
+        MODEL_TENSOR.SSM_C_NORM,
         MODEL_TENSOR.SSM_OUT,
     ],
     MODEL_ARCH.GPT2: [

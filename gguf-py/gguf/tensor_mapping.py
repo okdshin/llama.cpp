@@ -472,15 +472,15 @@ class TensorNameMap:
             "model.layers.layers.{bid}.mixer.D",  # plamo2
         ),
 
-        MODEL_TENSOR.SSM_dt_norm: (
+        MODEL_TENSOR.SSM_DT_NORM: (
             "model.layers.layers.{bid}.mixer.dt_norm.weight",  # plamo2
         ),
 
-        MODEL_TENSOR.SSM_B_norm: (
+        MODEL_TENSOR.SSM_B_NORM: (
             "model.layers.layers.{bid}.mixer.B_norm.weight",  # plamo2
         ),
 
-        MODEL_TENSOR.SSM_C_norm: (
+        MODEL_TENSOR.SSM_C_NORM: (
             "model.layers.layers.{bid}.mixer.C_norm.weight",  # plamo2
         ),
 
