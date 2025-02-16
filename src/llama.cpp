@@ -4094,10 +4094,11 @@ struct llm_build_context {
         struct ggml_tensor * KQ_mask = build_inp_KQ_mask();
         ggml_build_forward_expand(gf, KQ_mask); //TODO remove
 
-        for (int il = 0; il < n_layer; ++il) {
-        //for (int il = 0; il < 1; ++il) {
+        //for (int il = 0; il < n_layer; ++il) {
+        for (int il = 0; il < 1; ++il) {
             struct ggml_tensor * residual = cur;
 
+            std::cout << "norm_rms_eps " << hparams.f_norm_rms_eps << std::endl;
             // pre_mixer_norm //TODO offset=1.0
             cur = llm_build_norm(ctx0, cur, hparams,
                     model.layers[il].attn_norm, NULL,
