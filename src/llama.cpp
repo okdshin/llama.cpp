@@ -26,6 +26,8 @@
 #include <ctime>
 #include <functional>
 
+#include <iostream>
+
 #if defined(_MSC_VER)
 #pragma warning(disable: 4244 4267) // possible loss of data
 #endif
@@ -4081,29 +4083,33 @@ struct llm_build_context {
         GGML_ASSERT(n_embd_head == hparams.n_rot);
 
         struct ggml_tensor * cur;
-        struct ggml_tensor * inpL;
 
-        inpL = llm_build_inp_embd(ctx0, lctx, hparams, ubatch, model.tok_embd, cb);
+        cur = llm_build_inp_embd(ctx0, lctx, hparams, ubatch, model.tok_embd, cb);
 
-        /*
         // inp_pos - contains the positions
         struct ggml_tensor * inp_pos = build_inp_pos();
+        ggml_build_forward_expand(gf, inp_pos); //TODO remove
 
         // KQ_mask (mask for 1 head, it will be broadcasted to all heads)
         struct ggml_tensor * KQ_mask = build_inp_KQ_mask();
+        ggml_build_forward_expand(gf, KQ_mask); //TODO remove
 
         for (int il = 0; il < n_layer; ++il) {
+        //for (int il = 0; il < 1; ++il) {
+            struct ggml_tensor * residual = cur;
 
-            // norm
-            cur = llm_build_norm(ctx0, inpL, hparams,
+            // pre_mixer_norm //TODO offset=1.0
+            cur = llm_build_norm(ctx0, cur, hparams,
                     model.layers[il].attn_norm, NULL,
                     LLM_NORM_RMS, cb, il);
-            cb(cur, "attn_norm", il);
+            cb(cur, "pre_mixer_norm", il);
 
-            struct ggml_tensor * attention_norm = cur;
-
-            // self-attention
-            {
+            //Mixer
+            bool is_attn_layer = (model.layers[il].wqkv != nullptr);
+            if(is_attn_layer) {
+                // self-attention
+                std::cout << "ATTN!!!" << std::endl;
+                /*
                 // compute Q and K and RoPE them
                 struct ggml_tensor * Qcur = llm_build_lora_mm(lctx, ctx0, model.layers[il].wq, cur);
                 cb(Qcur, "Qcur", il);
@@ -4129,40 +4135,59 @@ struct llm_build_context {
                 cur = llm_build_kv(ctx0, lctx, kv_self, gf,
                         model.layers[il].wo, NULL,
                         Kcur, Vcur, Qcur, KQ_mask, n_tokens, kv_head, n_kv, 1.0f/sqrtf(float(n_embd_head)), cb, il);
+                */
             }
-            struct ggml_tensor * sa_out = cur;
-
-            cur = attention_norm;
+            else {
+                // Mamba
+                std::cout << "MAMBA!!!" << std::endl;
+            }
 
             if (il == n_layer - 1) {
                 // skip computing output for unused tokens
                 struct ggml_tensor * inp_out_ids = build_inp_out_ids();
-                cur    = ggml_get_rows(ctx0,    cur, inp_out_ids);
-                sa_out = ggml_get_rows(ctx0, sa_out, inp_out_ids);
-                inpL   = ggml_get_rows(ctx0,   inpL, inp_out_ids);
+                cur = ggml_get_rows(ctx0, cur, inp_out_ids);
             }
 
-            // feed-forward network
+            // post_mixer_norm //TODO offset=1.0 / 5
+            cur = llm_build_norm(ctx0, cur, hparams,
+                    model.layers[il].attn_post_norm, NULL,
+                    LLM_NORM_RMS, cb, il);
+            cb(cur, "post_mixer_norm", il);
+
+            // TODO
+            //cur = ggml_add(ctx0, cur, residual);
+
+            residual = cur;
+
+            // pre_mlp_norm //TODO offset=1.0
+            cur = llm_build_norm(ctx0, cur, hparams,
+                    model.layers[il].ffn_norm, NULL,
+                    LLM_NORM_RMS, cb, il);
+            cb(cur, "pre_mlp_norm", il);
+
+            // MLP
             {
                 cur = llm_build_ffn(ctx0, lctx, cur,
                         model.layers[il].ffn_up,   NULL, NULL,
-                        model.layers[il].ffn_gate, NULL, NULL,
+                        NULL,                      NULL, NULL,
                         model.layers[il].ffn_down, NULL, NULL,
                         NULL,
-                        LLM_FFN_SILU, LLM_FFN_PAR, cb, il);
-                cb(cur, "ffn_out", il);
+                        LLM_FFN_SWIGLU, LLM_FFN_SEQ, cb, il);
+                cb(cur, "mlp_out", il);
             }
 
-            cur = ggml_add(ctx0, cur, sa_out);
-            cur = ggml_add(ctx0, cur, inpL);
+            // post_mlp_norm //TODO offset=1.0 / (5**1.5)
+            cur = llm_build_norm(ctx0, cur, hparams,
+                    model.layers[il].ffn_post_norm, NULL,
+                    LLM_NORM_RMS, cb, il);
+            cb(cur, "post_mlp_norm", il);
+
+            //TODO
+            //cur = ggml_add(ctx0, cur, residual);
+
             cur = lctx.cvec.apply_to(ctx0, cur, il);
-            cb(cur, "l_out", il);
-
-            // input for next layer
-            inpL = cur;
+            cb(cur, "layer_out", il);
         }
-
-        cur = inpL;
 
         cur = llm_build_norm(ctx0, cur, hparams,
                 model.output_norm, NULL,
@@ -4170,9 +4195,8 @@ struct llm_build_context {
         cb(cur, "result_norm", -1);
 
         // lm_head
-        cur = llm_build_lora_mm(lctx, ctx0, model.output, cur);
+        //cur = llm_build_lora_mm(lctx, ctx0, model.output, cur);
         cb(cur, "result_output", -1);
-        */
 
         ggml_build_forward_expand(gf, cur);
 
