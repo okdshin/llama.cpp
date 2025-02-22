@@ -867,6 +867,151 @@ static struct ggml_tensor * llm_build_mamba(
     return cur;
 }
 
+static struct ggml_tensor * llm_build_rs(
+        struct ggml_context * ctx,
+         struct ggml_cgraph * graph,
+         struct ggml_tensor * s,
+         struct ggml_tensor * state_copy,
+                    int32_t   rs_zero,
+                    int32_t   n_state,
+                    int32_t   kv_size,
+                    int32_t   kv_head,
+                    int32_t   n_kv,
+                    int32_t   n_seqs,
+                    bool      avoid_copies = false) {
+    struct ggml_tensor * states = ggml_reshape_2d(ctx, s, n_state, kv_size);
+
+    // Clear a single state which will then be copied to the other cleared states.
+    // Note that this is a no-op when the view is zero-sized.
+    struct ggml_tensor * state_zero = ggml_view_1d(ctx, states, n_state*(rs_zero >= 0), rs_zero*states->nb[1]*(rs_zero >= 0));
+    ggml_build_forward_expand(graph, ggml_scale_inplace(ctx, state_zero, 0));
+
+    // copy states which won't be changed further (between n_seqs and n_kv)
+    struct ggml_tensor * states_extra = ggml_get_rows(ctx, states, ggml_view_1d(ctx, state_copy, n_kv - n_seqs, n_seqs*state_copy->nb[0]));
+    ggml_build_forward_expand(graph,
+        ggml_cpy(ctx,
+            states_extra,
+            ggml_view_1d(ctx, s, n_state*(n_kv - n_seqs), (kv_head + n_seqs)*n_state*ggml_element_size(s))));
+
+    if (!avoid_copies) {
+        // copy states
+        // NOTE: assuming the copy destinations are ALL contained between kv_head and kv_head + n_kv
+        // this shrinks the tensors's ne[1] to n_kv
+        states = ggml_get_rows(ctx, states, ggml_view_1d(ctx, state_copy, n_seqs, 0));
+        // the part of the states that will be used and modified
+        states = ggml_view_2d(ctx, states, n_state, n_seqs, states->nb[1], 0);
+    }
+
+    return states;
+}
+
+static struct ggml_tensor * llm_build_plamo2_mamba2(
+        struct ggml_context * ctx,
+        struct llama_context & lctx,
+        const llama_ubatch & batch,
+        struct ggml_cgraph * graph,
+        struct ggml_tensor * cur,
+        struct ggml_tensor * state_copy,
+        int32_t   rs_zero,
+        int32_t   kv_head,
+        int32_t   n_kv,
+        const llm_build_cb & cb,
+        int       il) {
+    const llama_model    & model   = lctx.model;
+    const llama_hparams  & hparams = model.hparams;
+    const llama_kv_cache & kv      = lctx.kv_self;
+    const int64_t d_conv  = hparams.ssm_d_conv;
+    const int64_t d_inner = hparams.ssm_d_inner;
+    const int64_t d_state = hparams.ssm_d_state;
+    const int64_t n_head  = hparams.ssm_dt_rank;
+    const int64_t head_dim = d_inner / n_head;
+    const int64_t n_seqs  = batch.n_seqs;
+    const int64_t n_seq_tokens = batch.n_seq_tokens;
+
+    // キャッシュの状態
+    struct ggml_tensor * conv_states = kv.k_l[il];
+    struct ggml_tensor * ssm_states  = kv.v_l[il];
+
+    // in_projに相当
+    struct ggml_tensor * zx = llm_build_lora_mm(lctx, ctx, model.layers[il].ssm_in, cur);
+    cb(zx, "plamo2_mamba2_zx", il);
+    ggml_build_forward_expand(graph, zx); //TODO remove
+    /*
+    // reshape to (bsize, length, num_heads, -1)に相当
+    zx = ggml_reshape_4d(ctx, zx, head_dim, 2, n_head, n_seq_tokens * n_seqs);
+    zx = ggml_cont(ctx, zx);
+
+    // z, xのsplit
+    struct ggml_tensor * z = ggml_view_3d(ctx, zx, head_dim, n_head, n_seq_tokens * n_seqs,
+                                         zx->nb[1], zx->nb[2], zx->nb[3]);
+    struct ggml_tensor * x = ggml_view_3d(ctx, zx, head_dim, n_head, n_seq_tokens * n_seqs,
+                                         zx->nb[1], zx->nb[2], head_dim * ggml_element_size(zx));
+    cb(x, "plamo2_mamba2_z", il);
+    cb(x, "plamo2_mamba2_x", il);
+
+    // conv1d
+    x = ggml_cont(ctx, x);
+    x = ggml_reshape_3d(ctx, x, head_dim * n_head, n_seq_tokens, n_seqs);
+    x = ggml_transpose(ctx, x);  // (d_inner, length, batch)
+    {
+        struct ggml_tensor * conv_x = ggml_concat(ctx, conv_states, x, 0);
+        struct ggml_tensor * last_conv = ggml_view_3d(ctx, conv_x, d_conv - 1, d_inner, n_seqs,
+                                                     conv_x->nb[1], conv_x->nb[2], n_seq_tokens * conv_x->nb[0]);
+
+        // キャッシュの更新
+        ggml_build_forward_expand(graph,
+            ggml_cpy(ctx, last_conv,
+                ggml_view_1d(ctx, conv_states,
+                    (d_conv - 1) * d_inner * n_seqs,
+                    kv_head * (d_conv - 1) * d_inner * ggml_element_size(conv_states))));
+
+        x = ggml_ssm_conv(ctx, conv_x, model.layers[il].ssm_conv1d);
+        x = ggml_silu(ctx, x);
+    }
+
+    // bcdt_projに相当
+    x = ggml_transpose(ctx, x);  // (length, d_inner, batch)
+    struct ggml_tensor * bcdt = llm_build_lora_mm(lctx, ctx, model.layers[il].ssm_x, x);
+
+    // B, C, dtの分割
+    struct ggml_tensor * B = ggml_view_3d(ctx, bcdt, d_state, n_seq_tokens, n_seqs, bcdt->nb[1], bcdt->nb[2], 0);
+    struct ggml_tensor * C = ggml_view_3d(ctx, bcdt, d_state, n_seq_tokens, n_seqs, bcdt->nb[1], bcdt->nb[2],
+                                         d_state * ggml_element_size(bcdt));
+    struct ggml_tensor * dt = ggml_view_3d(ctx, bcdt, hparams.ssm_dt_rank, n_seq_tokens, n_seqs, bcdt->nb[1], bcdt->nb[2],
+                                          2 * d_state * ggml_element_size(bcdt));
+
+    // RMSノルム
+    dt = llm_build_norm(ctx, dt, hparams, model.layers[il].ssm_dt_norm, NULL, LLM_NORM_RMS, cb, il);
+    B = llm_build_norm(ctx, B, hparams, model.layers[il].ssm_b_norm, NULL, LLM_NORM_RMS, cb, il);
+    C = llm_build_norm(ctx, C, hparams, model.layers[il].ssm_c_norm, NULL, LLM_NORM_RMS, cb, il);
+
+    // dt projection
+    dt = llm_build_lora_mm(lctx, ctx, model.layers[il].ssm_dt, dt);
+    dt = ggml_add(ctx, dt, model.layers[il].ssm_dt_b);
+
+    // ssm
+    struct ggml_tensor * y = ggml_ssm_scan(ctx, ssm_states, x, dt, model.layers[il].ssm_a, B, C);
+
+    // キャッシュの更新
+    ggml_build_forward_expand(graph,
+        ggml_cpy(ctx, ggml_view_1d(ctx, y, d_state * d_inner * n_seqs,
+                 ggml_nelements(x) * x->nb[0]),
+                 ggml_view_1d(ctx, ssm_states, d_state * d_inner * n_seqs,
+                 kv_head * d_state * d_inner * ggml_element_size(ssm_states))));
+
+    // gating with z and D
+    y = ggml_add(ctx, y, ggml_mul(ctx, x, model.layers[il].ssm_d));
+    y = ggml_mul(ctx, y, ggml_silu(ctx, z));
+
+    // 出力プロジェクション
+    cur = llm_build_lora_mm(lctx, ctx, model.layers[il].ssm_out, y);
+    cur = ggml_reshape_2d(ctx, cur, cur->ne[0], n_seq_tokens * n_seqs);
+    */
+
+    //cb(cur, "plamo2_mamba2_out", il);
+    return cur;
+}
+
 static struct ggml_tensor * llm_build_rwkv6_time_mix(
         struct llama_context & lctx,
         struct ggml_context * ctx,
@@ -4094,12 +4239,14 @@ struct llm_build_context {
         struct ggml_tensor * KQ_mask = build_inp_KQ_mask();
         ggml_build_forward_expand(gf, KQ_mask); //TODO remove
 
+        struct ggml_tensor * state_copy = build_inp_s_copy();
+
         //for (int il = 0; il < n_layer; ++il) {
         for (int il = 0; il < 1; ++il) {
             struct ggml_tensor * residual = cur;
 
             std::cout << "norm_rms_eps " << hparams.f_norm_rms_eps << std::endl;
-            // pre_mixer_norm //TODO offset=1.0
+            // pre_mixer_norm
             cur = llm_build_norm(ctx0, cur, hparams,
                     model.layers[il].attn_norm, NULL,
                     LLM_NORM_RMS, cb, il);
@@ -4112,8 +4259,11 @@ struct llm_build_context {
                 std::cout << "ATTN!!!" << std::endl;
             }
             else {
+                int32_t rs_zero = 0; // TODO
                 // Mamba
                 std::cout << "MAMBA!!!" << std::endl;
+                cur = llm_build_plamo2_mamba2(ctx0, lctx, ubatch, gf, cur,
+                        state_copy, rs_zero, kv_head, n_kv, cb, il);
             }
 
             if (il == n_layer - 1) {
