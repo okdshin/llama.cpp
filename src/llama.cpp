@@ -1075,7 +1075,7 @@ static struct ggml_tensor * llm_build_plamo2_mamba2(
 
     // dt projection
     dt = llm_build_lora_mm(lctx, ctx, model.layers[il].ssm_dt, dt);
-    dt = ggml_add(ctx, dt, model.layers[il].ssm_dt_b);
+    //dt = ggml_add(ctx, dt, model.layers[il].ssm_dt_b);
     cb(dt, "plamo2_mamba2_dt_projcted", il);
     ggml_build_forward_expand(graph, dt); //TODO remove
 
