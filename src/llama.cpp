@@ -1062,24 +1062,24 @@ static struct ggml_tensor * llm_build_plamo2_mamba2(
     cb(dt, "plamo2_mamba2_dt", il);
     ggml_build_forward_expand(graph, dt); //TODO remove
 
-    /*
     // RMSノルム
     dt = llm_build_norm(ctx, dt, hparams, model.layers[il].ssm_dt_norm, NULL, LLM_NORM_RMS, cb, il);
-    cb(x, "plamo2_mamba2_dt_norm", il);
+    cb(dt, "plamo2_mamba2_dt_norm", il);
     ggml_build_forward_expand(graph, dt); //TODO remove
     B = llm_build_norm(ctx, B, hparams, model.layers[il].ssm_b_norm, NULL, LLM_NORM_RMS, cb, il);
-    cb(x, "plamo2_mamba2_B_norm", il);
+    cb(B, "plamo2_mamba2_B_norm", il);
     ggml_build_forward_expand(graph, B); //TODO remove
     C = llm_build_norm(ctx, C, hparams, model.layers[il].ssm_c_norm, NULL, LLM_NORM_RMS, cb, il);
-    cb(x, "plamo2_mamba2_C_norm", il);
+    cb(C, "plamo2_mamba2_C_norm", il);
     ggml_build_forward_expand(graph, C); //TODO remove
 
     // dt projection
     dt = llm_build_lora_mm(lctx, ctx, model.layers[il].ssm_dt, dt);
     dt = ggml_add(ctx, dt, model.layers[il].ssm_dt_b);
-    cb(x, "plamo2_mamba2_dt", il);
+    cb(dt, "plamo2_mamba2_dt_projcted", il);
     ggml_build_forward_expand(graph, dt); //TODO remove
 
+    /*
     // ssm
     struct ggml_tensor * y = ggml_ssm_scan(ctx, ssm_states, x, dt, model.layers[il].ssm_a, B, C);
 
