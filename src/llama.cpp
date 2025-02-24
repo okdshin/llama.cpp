@@ -1048,14 +1048,17 @@ static struct ggml_tensor * llm_build_plamo2_mamba2(
 
     // B, C, dtの分割
     struct ggml_tensor * B = ggml_view_3d(ctx, bcdt, d_state, n_seq_tokens, n_seqs, bcdt->nb[1], bcdt->nb[2], 0);
+    B = ggml_cont(ctx, B);
     cb(B, "plamo2_mamba2_B", il);
     ggml_build_forward_expand(graph, B); //TODO remove
     struct ggml_tensor * C = ggml_view_3d(ctx, bcdt, d_state, n_seq_tokens, n_seqs, bcdt->nb[1], bcdt->nb[2],
                                          d_state * ggml_element_size(bcdt));
+    C = ggml_cont(ctx, C);
     cb(C, "plamo2_mamba2_C", il);
     ggml_build_forward_expand(graph, C); //TODO remove
     struct ggml_tensor * dt = ggml_view_3d(ctx, bcdt, hparams.ssm_dt_rank, n_seq_tokens, n_seqs, bcdt->nb[1], bcdt->nb[2],
                                           2 * d_state * ggml_element_size(bcdt));
+    dt = ggml_cont(ctx, dt);
     cb(dt, "plamo2_mamba2_dt", il);
     ggml_build_forward_expand(graph, dt); //TODO remove
 
