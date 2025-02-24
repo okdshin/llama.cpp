@@ -28,6 +28,7 @@
 
 #include <iostream>
 
+
 #if defined(_MSC_VER)
 #pragma warning(disable: 4244 4267) // possible loss of data
 #endif
@@ -920,13 +921,21 @@ static struct ggml_tensor * llm_build_plamo2_mamba2(
     const llama_model    & model   = lctx.model;
     const llama_hparams  & hparams = model.hparams;
     const llama_kv_cache & kv      = lctx.kv_self;
-    const int64_t d_conv  = hparams.ssm_d_conv;
-    const int64_t d_inner = hparams.ssm_d_inner;
-    const int64_t d_state = hparams.ssm_d_state;
-    const int64_t n_head  = hparams.ssm_dt_rank;
-    const int64_t head_dim = d_inner / n_head;
+    const int64_t d_conv  = hparams.ssm_d_conv; // = 4
+    const int64_t d_inner = 8192;//hparams.ssm_d_inner;
+    const int64_t d_state = hparams.ssm_d_state; // = 64
+    const int64_t n_head  = 32; //hparams.ssm_dt_rank;
+    const int64_t head_dim = 128; //d_inner / n_head;
     const int64_t n_seqs  = batch.n_seqs;
     const int64_t n_seq_tokens = batch.n_seq_tokens;
+
+    std::cout << "d_conv " << d_conv << std::endl;
+    std::cout << "d_inner " << d_inner << std::endl;
+    std::cout << "d_state " << d_state << std::endl;
+    std::cout << "n_head " << n_head << std::endl;
+    std::cout << "head_dim " << head_dim << std::endl;
+    std::cout << "n_seqs " << n_seqs << std::endl;
+    std::cout << "n_seq_tokens " << n_seq_tokens << std::endl;
 
     // キャッシュの状態
     struct ggml_tensor * conv_states = kv.k_l[il];
@@ -935,20 +944,45 @@ static struct ggml_tensor * llm_build_plamo2_mamba2(
     // in_projに相当
     struct ggml_tensor * zx = llm_build_lora_mm(lctx, ctx, model.layers[il].ssm_in, cur);
     cb(zx, "plamo2_mamba2_zx", il);
-    ggml_build_forward_expand(graph, zx); //TODO remove
-    /*
-    // reshape to (bsize, length, num_heads, -1)に相当
-    zx = ggml_reshape_4d(ctx, zx, head_dim, 2, n_head, n_seq_tokens * n_seqs);
+    zx = ggml_reshape_4d(ctx, zx,
+        head_dim * 2, // dim (128) * 2
+        n_head, // heads (32)
+        n_seqs, // len
+        n_seq_tokens // batch
+    );
     zx = ggml_cont(ctx, zx);
+    cb(zx, "plamo2_mamba2_zx_reshaped", il);
 
     // z, xのsplit
-    struct ggml_tensor * z = ggml_view_3d(ctx, zx, head_dim, n_head, n_seq_tokens * n_seqs,
-                                         zx->nb[1], zx->nb[2], zx->nb[3]);
-    struct ggml_tensor * x = ggml_view_3d(ctx, zx, head_dim, n_head, n_seq_tokens * n_seqs,
-                                         zx->nb[1], zx->nb[2], head_dim * ggml_element_size(zx));
-    cb(x, "plamo2_mamba2_z", il);
-    cb(x, "plamo2_mamba2_x", il);
+    struct ggml_tensor * z = ggml_view_4d(ctx, zx,
+        head_dim, // dim (128)
+        n_head, // heads (32)
+        n_seqs, // len
+        n_seq_tokens, // batch
+        zx->nb[1],
+        zx->nb[2],
+        zx->nb[3],
+        0            // offset for first half
+    );
+    z = ggml_cont(ctx, z); // TODO remove
+    cb(z, "plamo2_mamba2_z", il);
+    ggml_build_forward_expand(graph, z); //TODO remove
 
+    struct ggml_tensor * x = ggml_view_4d(ctx, zx,
+        head_dim, // dim (128)
+        n_head, // heads (32)
+        n_seqs, // len
+        n_seq_tokens, // batch
+        zx->nb[1],
+        zx->nb[2],
+        zx->nb[3],
+        zx->nb[0] * head_dim
+    );
+    x = ggml_cont(ctx, x); // TODO remove
+    cb(x, "plamo2_mamba2_x", il);
+    ggml_build_forward_expand(graph, x); //TODO remove
+
+    /*
     // conv1d
     x = ggml_cont(ctx, x);
     x = ggml_reshape_3d(ctx, x, head_dim * n_head, n_seq_tokens, n_seqs);

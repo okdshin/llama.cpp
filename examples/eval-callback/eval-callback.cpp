@@ -9,6 +9,130 @@
 #include <vector>
 #include <iostream>
 
+#include <fstream>
+#include <sstream>
+#include <mutex>
+
+static std::mutex file_mutex;
+
+void writeUint64LE(std::ofstream& file, uint64_t value) {
+    uint8_t bytes[8];
+    bytes[0] = (value >> 0) & 0xFF;
+    bytes[1] = (value >> 8) & 0xFF;
+    bytes[2] = (value >> 16) & 0xFF;
+    bytes[3] = (value >> 24) & 0xFF;
+    bytes[4] = (value >> 32) & 0xFF;
+    bytes[5] = (value >> 40) & 0xFF;
+    bytes[6] = (value >> 48) & 0xFF;
+    bytes[7] = (value >> 56) & 0xFF;
+    file.write(reinterpret_cast<const char*>(bytes), 8);
+}
+
+class JsonBuilder {
+    std::ostringstream ss;
+    bool first_field = true;
+public:
+    JsonBuilder() { ss << "{"; }
+
+    void addField(const std::string& key, const std::string& value) {
+        if (!first_field) ss << ",";
+        ss << "\"" << key << "\":\"" << value << "\"";
+        first_field = false;
+    }
+
+    void addArray(const std::string& key, const std::vector<size_t>& arr) {
+        if (!first_field) ss << ",";
+        ss << "\"" << key << "\":[";
+        for (size_t i = 0; i < arr.size(); ++i) {
+            ss << arr[i];
+            if (i < arr.size() - 1) ss << ",";
+        }
+        ss << "]";
+        first_field = false;
+    }
+
+    void addObject(const std::string& key, const std::string& json_obj) {
+        if (!first_field) ss << ",";
+        ss << "\"" << key << "\":" << json_obj;
+        first_field = false;
+    }
+
+    void addEmptyObject(const std::string& key) {
+        if (!first_field) ss << ",";
+        ss << "\"" << key << "\":{}";
+        first_field = false;
+    }
+
+    std::string str() const {
+        return ss.str() + "}";
+    }
+};
+
+template<typename T>
+bool saveSafetensor(const std::string& filename,
+                   const std::string& tensor_name,
+                   const std::vector<size_t>& shape,
+                   const std::string& dtype,
+                   const T* data) {
+    // Lock for file operations
+    std::lock_guard<std::mutex> lock(file_mutex);
+    try {
+        // Calculate sizes before acquiring lock
+        size_t elem_size;
+        if (dtype == "F32") elem_size = 4;
+        else if (dtype == "F16") elem_size = 2;
+        else if (dtype == "I32") elem_size = 4;
+        else if (dtype == "I8") elem_size = 1;
+        else throw std::runtime_error("Unsupported dtype: " + dtype);
+
+        size_t total_elements = 1;
+        for (size_t dim : shape) {
+            total_elements *= dim;
+        }
+        size_t tensor_size = total_elements * elem_size;
+
+        // Prepare JSON header before acquiring lock
+        JsonBuilder tensor_info;
+        tensor_info.addField("dtype", dtype);
+        tensor_info.addArray("shape", shape);
+        tensor_info.addArray("data_offsets", {0, tensor_size});
+
+        JsonBuilder root;
+        root.addObject(tensor_name, tensor_info.str());
+        root.addEmptyObject("__metadata__");
+
+        std::string header = root.str();
+        uint64_t header_size = header.size();
+
+
+        // Open file with truncation mode to ensure clean write
+        std::ofstream file(filename, std::ios::binary | std::ios::out | std::ios::trunc);
+        if (!file) {
+            return false;
+        }
+
+        // Ensure the file is empty
+        file.seekp(0);
+
+        // Write header size in little endian
+        writeUint64LE(file, header_size);
+
+        // Write header JSON
+        file.write(header.data(), header.size());
+
+        // Write tensor data
+        file.write(reinterpret_cast<const char*>(data), tensor_size);
+
+        // Ensure all data is written
+        file.flush();
+        file.close();
+
+        return true;
+    } catch (const std::exception&) {
+        return false;
+    }
+}
+
 /**
  * This the arbitrary data which will be passed to each callback.
  * Later on we can for example add operation or tensor name filter from the CLI arg, or a file descriptor to dump the tensor.
@@ -122,6 +246,28 @@ static bool ggml_debug(struct ggml_tensor * t, bool ask, void * user_data) {
     if (!ggml_is_quantized(t->type)) {
         uint8_t * data = is_host ? (uint8_t *) t->data : cb_data->data.data();
         ggml_print_tensor(data, t->type, t->ne, t->nb, 3);
+
+        std::vector<size_t> shape;
+        if(ggml_n_dims(t) == 4) {
+            shape = {static_cast<size_t>(t->ne[3]), static_cast<size_t>(t->ne[2]), static_cast<size_t>(t->ne[1]), static_cast<size_t>(t->ne[0])};
+        }
+        else if(ggml_n_dims(t) == 3) {
+            shape = {static_cast<size_t>(t->ne[2]), static_cast<size_t>(t->ne[1]), static_cast<size_t>(t->ne[0])};
+        }
+        else if(ggml_n_dims(t) == 2) {
+            shape = {static_cast<size_t>(t->ne[1]), static_cast<size_t>(t->ne[0])};
+        }
+        else if(ggml_n_dims(t) == 1) {
+            shape = {static_cast<size_t>(t->ne[0])};
+        }
+
+        saveSafetensor(
+            std::string(t->name) + ".safetensors",
+            t->name,
+            shape,
+            "F32",
+            static_cast<float*>(t->data)
+        );
     }
 
     return true;
