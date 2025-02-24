@@ -2727,6 +2727,12 @@ class Plamo2Model(Model):
             assert data_torch.ndim == 2
         elif name.endswith(".pre_mixer_norm.weight"):
             data_torch += 1.0
+        elif name.endswith(".post_mixer_norm.weight"):
+            data_torch += 1.0 / 5
+        elif name.endswith(".pre_mlp_norm.weight"):
+            data_torch += 1.0
+        elif name.endswith(".post_mlp_norm.weight"):
+            data_torch += 1.0 / (5**1.5)
 
         new_name = self.map_tensor_name(name)
         print(f"{name} -> {new_name}: {data_torch.shape}")
