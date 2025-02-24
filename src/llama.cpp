@@ -913,6 +913,7 @@ static struct ggml_tensor * llm_build_plamo2_mamba2(
         struct ggml_cgraph * graph,
         struct ggml_tensor * cur,
         struct ggml_tensor * state_copy,
+        struct ggml_tensor * state_mask,
         int32_t   rs_zero,
         int32_t   kv_head,
         int32_t   n_kv,
@@ -922,7 +923,7 @@ static struct ggml_tensor * llm_build_plamo2_mamba2(
     const llama_hparams  & hparams = model.hparams;
     const llama_kv_cache & kv      = lctx.kv_self;
     const int64_t d_conv  = hparams.ssm_d_conv; // = 4
-    const int64_t d_inner = 8192;//hparams.ssm_d_inner;
+    const int64_t d_inner = 4096;//8192;//hparams.ssm_d_inner;
     const int64_t d_state = hparams.ssm_d_state; // = 64
     const int64_t n_head  = 32; //hparams.ssm_dt_rank;
     const int64_t head_dim = 128; //d_inner / n_head;
@@ -938,8 +939,40 @@ static struct ggml_tensor * llm_build_plamo2_mamba2(
     std::cout << "n_seq_tokens " << n_seq_tokens << std::endl;
 
     // キャッシュの状態
-    struct ggml_tensor * conv_states = kv.k_l[il];
-    struct ggml_tensor * ssm_states  = kv.v_l[il];
+    struct ggml_tensor * conv_states_all = kv.k_l[il];
+    struct ggml_tensor * ssm_states_all  = kv.v_l[il];
+
+
+    std::cout << "----" << std::endl;
+    std::cout << conv_states_all->ne[0] << std::endl;
+    std::cout << conv_states_all->ne[1] << std::endl;
+    std::cout << conv_states_all->ne[2] << std::endl;
+    std::cout << conv_states_all->ne[3] << std::endl;
+    std::cout << "----" << std::endl;
+    std::cout << "kv.size " << kv.size << std::endl;
+    std::cout << "kv_head " << kv_head << std::endl;
+    std::cout << "n_kv " << n_kv << std::endl;
+    std::cout << "n_seqs " << n_seqs << std::endl;
+    std::cout << "hparams.n_embd_k_s() " << hparams.n_embd_k_s() << std::endl;
+    std::cout << "hparams.n_embd_v_s() " << hparams.n_embd_v_s() << std::endl;
+    std::cout << "hparams.n_embd_head_k " << hparams.n_embd_head_k << std::endl;
+    std::cout << "hparams.n_head_kv() " << hparams.n_head_kv(il) << std::endl;
+    std::cout << "hparams.n_embd_k_gqa() " << hparams.n_embd_k_gqa() << std::endl;
+
+    // (ab)using the KV cache to store the states
+    conv_states_all->ne[0] = hparams.n_embd_k_s() * kv.size;
+    //conv_states_all = ggml_cont(ctx, conv_states_all);
+    struct ggml_tensor * conv = llm_build_copy_mask_state(ctx,
+            graph, conv_states_all, state_copy, state_mask,
+            hparams.n_embd_k_s(), kv.size, /*kv_head*/0, n_kv, n_seqs); // TODO use kv_head
+
+    conv = ggml_reshape_3d(ctx, conv, d_conv - 1, d_inner, n_seqs);
+    /*
+    struct ggml_tensor * ssm = llm_build_copy_mask_state(ctx,
+            graph, ssm_states_all, state_copy, state_mask,
+            hparams.n_embd_v_s(), kv.size, kv_head, n_kv, n_seqs);
+    ssm = ggml_reshape_3d(ctx, ssm, d_state, d_inner, n_seqs);
+    */
 
     // in_projに相当
     struct ggml_tensor * zx = llm_build_lora_mm(lctx, ctx, model.layers[il].ssm_in, cur);
@@ -947,8 +980,8 @@ static struct ggml_tensor * llm_build_plamo2_mamba2(
     zx = ggml_reshape_4d(ctx, zx,
         head_dim * 2, // dim (128) * 2
         n_head, // heads (32)
-        n_seqs, // len
-        n_seq_tokens // batch
+        n_seq_tokens, // lend
+        n_seqs // batch
     );
     zx = ggml_cont(ctx, zx);
     cb(zx, "plamo2_mamba2_zx_reshaped", il);
@@ -957,8 +990,8 @@ static struct ggml_tensor * llm_build_plamo2_mamba2(
     struct ggml_tensor * z = ggml_view_4d(ctx, zx,
         head_dim, // dim (128)
         n_head, // heads (32)
-        n_seqs, // len
-        n_seq_tokens, // batch
+        n_seq_tokens, // len
+        n_seqs, // batch
         zx->nb[1],
         zx->nb[2],
         zx->nb[3],
@@ -971,57 +1004,78 @@ static struct ggml_tensor * llm_build_plamo2_mamba2(
     struct ggml_tensor * x = ggml_view_4d(ctx, zx,
         head_dim, // dim (128)
         n_head, // heads (32)
-        n_seqs, // len
-        n_seq_tokens, // batch
+        n_seq_tokens, // len
+        n_seqs, // batch
         zx->nb[1],
         zx->nb[2],
         zx->nb[3],
         zx->nb[0] * head_dim
     );
-    x = ggml_cont(ctx, x); // TODO remove
-    cb(x, "plamo2_mamba2_x", il);
-    ggml_build_forward_expand(graph, x); //TODO remove
-
-    /*
-    // conv1d
     x = ggml_cont(ctx, x);
+    cb(x, "plamo2_mamba2_x", il);
+
+    // conv1d
+    //x = ggml_cont(ctx, x);
     x = ggml_reshape_3d(ctx, x, head_dim * n_head, n_seq_tokens, n_seqs);
-    x = ggml_transpose(ctx, x);  // (d_inner, length, batch)
+    x = ggml_transpose(ctx, x);  // (n_seq_tokens, head_dim*n_head, n_seqs)
+    /*
     {
-        struct ggml_tensor * conv_x = ggml_concat(ctx, conv_states, x, 0);
+        struct ggml_tensor * conv_x = ggml_concat(ctx, conv, x, 0);
         struct ggml_tensor * last_conv = ggml_view_3d(ctx, conv_x, d_conv - 1, d_inner, n_seqs,
                                                      conv_x->nb[1], conv_x->nb[2], n_seq_tokens * conv_x->nb[0]);
 
         // キャッシュの更新
         ggml_build_forward_expand(graph,
             ggml_cpy(ctx, last_conv,
-                ggml_view_1d(ctx, conv_states,
+                ggml_view_1d(ctx, conv_states_all,
                     (d_conv - 1) * d_inner * n_seqs,
-                    kv_head * (d_conv - 1) * d_inner * ggml_element_size(conv_states))));
+                    kv_head * (d_conv - 1) * d_inner * ggml_element_size(conv_states_all))));
 
         x = ggml_ssm_conv(ctx, conv_x, model.layers[il].ssm_conv1d);
         x = ggml_silu(ctx, x);
     }
+    */
+    x = ggml_cont(ctx, x);
+    cb(x, "plamo2_mamba2_x_updated", il);
 
     // bcdt_projに相当
-    x = ggml_transpose(ctx, x);  // (length, d_inner, batch)
-    struct ggml_tensor * bcdt = llm_build_lora_mm(lctx, ctx, model.layers[il].ssm_x, x);
+    x = ggml_transpose(ctx, x);  // (d_inner, length, batch)
+    x = ggml_cont(ctx, x);
+    struct ggml_tensor * bcdt = llm_build_lora_mm(lctx, ctx, model.layers[il].ssm_x, x); // ssm_x is used as bcdt_proj
+    bcdt = ggml_cont(ctx, bcdt);
+    cb(bcdt, "plamo2_mamba2_bcdt", il);
+    ggml_build_forward_expand(graph, bcdt); //TODO remove
 
     // B, C, dtの分割
     struct ggml_tensor * B = ggml_view_3d(ctx, bcdt, d_state, n_seq_tokens, n_seqs, bcdt->nb[1], bcdt->nb[2], 0);
+    cb(B, "plamo2_mamba2_B", il);
+    ggml_build_forward_expand(graph, B); //TODO remove
     struct ggml_tensor * C = ggml_view_3d(ctx, bcdt, d_state, n_seq_tokens, n_seqs, bcdt->nb[1], bcdt->nb[2],
                                          d_state * ggml_element_size(bcdt));
+    cb(C, "plamo2_mamba2_C", il);
+    ggml_build_forward_expand(graph, C); //TODO remove
     struct ggml_tensor * dt = ggml_view_3d(ctx, bcdt, hparams.ssm_dt_rank, n_seq_tokens, n_seqs, bcdt->nb[1], bcdt->nb[2],
                                           2 * d_state * ggml_element_size(bcdt));
+    cb(dt, "plamo2_mamba2_dt", il);
+    ggml_build_forward_expand(graph, dt); //TODO remove
 
+    /*
     // RMSノルム
     dt = llm_build_norm(ctx, dt, hparams, model.layers[il].ssm_dt_norm, NULL, LLM_NORM_RMS, cb, il);
+    cb(x, "plamo2_mamba2_dt_norm", il);
+    ggml_build_forward_expand(graph, dt); //TODO remove
     B = llm_build_norm(ctx, B, hparams, model.layers[il].ssm_b_norm, NULL, LLM_NORM_RMS, cb, il);
+    cb(x, "plamo2_mamba2_B_norm", il);
+    ggml_build_forward_expand(graph, B); //TODO remove
     C = llm_build_norm(ctx, C, hparams, model.layers[il].ssm_c_norm, NULL, LLM_NORM_RMS, cb, il);
+    cb(x, "plamo2_mamba2_C_norm", il);
+    ggml_build_forward_expand(graph, C); //TODO remove
 
     // dt projection
     dt = llm_build_lora_mm(lctx, ctx, model.layers[il].ssm_dt, dt);
     dt = ggml_add(ctx, dt, model.layers[il].ssm_dt_b);
+    cb(x, "plamo2_mamba2_dt", il);
+    ggml_build_forward_expand(graph, dt); //TODO remove
 
     // ssm
     struct ggml_tensor * y = ggml_ssm_scan(ctx, ssm_states, x, dt, model.layers[il].ssm_a, B, C);
@@ -4274,6 +4328,7 @@ struct llm_build_context {
         ggml_build_forward_expand(gf, KQ_mask); //TODO remove
 
         struct ggml_tensor * state_copy = build_inp_s_copy();
+        struct ggml_tensor * state_mask = build_inp_s_mask();
 
         //for (int il = 0; il < n_layer; ++il) {
         for (int il = 0; il < 1; ++il) {
@@ -4297,7 +4352,7 @@ struct llm_build_context {
                 // Mamba
                 std::cout << "MAMBA!!!" << std::endl;
                 cur = llm_build_plamo2_mamba2(ctx0, lctx, ubatch, gf, cur,
-                        state_copy, rs_zero, kv_head, n_kv, cb, il);
+                        state_copy, state_mask, rs_zero, kv_head, n_kv, cb, il);
             }
 
             if (il == n_layer - 1) {
